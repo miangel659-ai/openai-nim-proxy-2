@@ -24,7 +24,29 @@ if not NVIDIA_API_KEY:
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
-# Control ultra simple: 15 segundos exactos entre peticiones
+# --- LÍMITES AJUSTADOS PARA DeepSeek V4 Pro ---
+MAX_CONTEXT_TOKENS = 20000   # Reducido para evitar sobrecarga en capa gratuita
+MAX_OUTPUT_TOKENS = 2000     # Más conservador para V4 Pro
+WAIT_BETWEEN = 20            # 20 segundos entre peticiones (3 RPM)
+
+def estimar_tokens(messages):
+    total = 0
+    for msg in messages:
+        if "content" in msg and isinstance(msg["content"], str):
+            total += len(msg["content"]) // 3.5
+    return int(total)
+
+def recortar_historial(messages, max_tokens):
+    while estimar_tokens(messages) > max_tokens and len(messages) > 2:
+        if messages[0]["role"] == "system":
+            if len(messages) > 2:
+                messages.pop(1)
+            else:
+                break
+        else:
+            messages.pop(0)
+    return messages
+
 last_request_time = 0
 lock = asyncio.Lock()
 
@@ -43,16 +65,27 @@ async def chat_completions(request: Request):
 
     # Modelo por defecto
     if "model" not in body or not body["model"]:
-        body["model"] = "deepseek-ai/deepseek-r1"
+        body["model"] = "deepseek-ai/deepseek-v4-pro"
+
+    # --- CONTROL DE CONTEXTO Y TOKENS ---
+    if "messages" in body:
+        token_estimados = estimar_tokens(body["messages"])
+        print(f"ℹ️ Tokens estimados: {token_estimados}")
+        if token_estimados > MAX_CONTEXT_TOKENS:
+            print(f"⚠️ Recortando historial ({token_estimados} > {MAX_CONTEXT_TOKENS})")
+            body["messages"] = recortar_historial(body["messages"], MAX_CONTEXT_TOKENS)
+    
+    if "max_tokens" not in body or body["max_tokens"] > MAX_OUTPUT_TOKENS:
+        body["max_tokens"] = MAX_OUTPUT_TOKENS
 
     is_stream = body.get("stream", False)
 
-    # --- ESPERAR TURNO (15 segundos entre peticiones) ---
+    # --- ESPERAR TURNO ---
     async with lock:
         now = time.time()
-        wait = 15 - (now - last_request_time)
+        wait = WAIT_BETWEEN - (now - last_request_time)
         if wait > 0:
-            print(f"⏳ Esperando {wait:.0f}s para no saturar...")
+            print(f"⏳ Esperando {wait:.0f}s...")
             await asyncio.sleep(wait)
         last_request_time = time.time()
 
