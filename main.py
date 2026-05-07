@@ -24,7 +24,7 @@ if not NVIDIA_API_KEY:
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
-# Control simple: 12 segundos entre peticiones
+# Control ultra simple: 15 segundos exactos entre peticiones
 last_request_time = 0
 lock = asyncio.Lock()
 
@@ -47,12 +47,12 @@ async def chat_completions(request: Request):
 
     is_stream = body.get("stream", False)
 
-    # Esperar turno (máximo 12 segundos)
+    # --- ESPERAR TURNO (15 segundos entre peticiones) ---
     async with lock:
         now = time.time()
-        wait = 12 - (now - last_request_time)
+        wait = 15 - (now - last_request_time)
         if wait > 0:
-            print(f"⏳ Esperando {wait:.0f}s...")
+            print(f"⏳ Esperando {wait:.0f}s para no saturar...")
             await asyncio.sleep(wait)
         last_request_time = time.time()
 
